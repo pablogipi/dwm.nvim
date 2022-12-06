@@ -1,4 +1,12 @@
-local M = {}
+local function isBlank(x)
+  return not not tostring(x):find("^%s*$")
+end
+
+local M = {
+  floatwin = -1,
+  curwin = -1,
+  cur_float_win = -1,
+}
 
 --- Open a new window
 -- The master pane move to the top of stacks, and a new window appears.
@@ -147,6 +155,13 @@ function M:reset()
   end
 
   for i = self.master_pane_count, 1, -1 do
+    -- FIXME: This command create problems with floating windows
+    -- Probably I need to avoid this, it can cause problems not only
+    -- with floating windows but also with NerdTree and others.
+    -- Setting current window the master and force to be to the leftmost
+    -- cause flaoting windows to lose focus and things like Nerdtree to
+    -- not be deleted and then stacked
+    -- At the moment disable it
     vim.api.nvim_set_current_win(wins[i])
     self:wincmd "H"
   end
@@ -156,6 +171,15 @@ function M:reset()
   for i = 1, self.master_pane_count do
     vim.api.nvim_win_set_width(wins[i], width)
     vim.api.nvim_win_set_option(wins[i], "winfixwidth", true)
+  end
+
+  -- If there is a floating window then restore focus to it
+  if self.cur_float_win >= 0 then 
+    -- print(string.format("Switch focus to current floating window: %d", self.cur_float_win))
+    -- Restore focus to current floating window
+    if vim.api.nvim_win_is_valid(self.cur_float_win) then
+      vim.api.nvim_set_current_win(self.cur_float_win)
+    end
   end
 end
 
@@ -178,11 +202,29 @@ function M:default_master_pane_width()
 end
 
 function M:get_wins() -- luacheck: ignore 212
+  self.floatwin = -1 -- Init local win index
+  self.cur_float_win = -1 -- Init local win index
+  self.curwin = vim.api.nvim_get_current_win()
   local wins = {}
+  -- print("Current window: %d", self.curwin)
   for _, w in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
-    local is_float = vim.api.nvim_win_get_config(w).relative ~= ""
+    local is_float = vim.api.nvim_win_get_config(w).relative ~= ""  or vim.api.nvim_win_get_config(w).external == 1 
+    -- local is_external = vim.api.nvim_win_get_config(w).external == 1 
+    local buf = vim.api.nvim_win_get_buf(w)
+    -- print(_,w)
+    -- print(vim.api.nvim_buf_get_name(buf))
+    -- print(vim.api.nvim_buf_get_var(buf, "filetype"))
     if not is_float then
       table.insert(wins, w)
+    else  
+      if not isBlank(buf) then
+        -- print(string.format("Found floating window with index: %d", w))
+        self.floatwin = w -- Init local win index  
+        if self.curwin == w then 
+          -- print("Floating window is current window!!!")
+          self.cur_float_win = w
+        end
+      end
     end
   end
   return wins
