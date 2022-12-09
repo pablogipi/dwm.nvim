@@ -8,6 +8,7 @@ local M = {
   curwin = -1,
   cur_float_win = -1,
   nerdtree_win = -1,
+  outline_win = -1,
   nerdtree_win_pos = { 0, 0 },
 }
 
@@ -17,17 +18,23 @@ function M:pre_win_op()
 
   -- If there is a nerdtree window then toggle it to close
   -- print "In PRE"
-  if self.nerdtree_win >= 0 then
+  if self.nerdtree_win >= 0  and  vim.api.nvim_win_is_valid(self.nerdtree_win) then
     -- print("Close NERDTree window")
     vim.api.nvim_command "NERDTreeClose"
   end
+  if self.outline_win >= 0 and  vim.api.nvim_win_is_valid(self.outline_win) then
+    -- print("Close Symbols Outline window")
+    vim.api.nvim_command "SymbolsOutlineClose"
+  end
   self.resetwins = false
 end
+
 function M:post_win_op()
   -- print "In POST"
   -- Operations to do AFTER any window operation is performed.
   -- This assumes get_wins() has been called and our spacial flags are ready
   local curwin = vim.api.nvim_get_current_win()
+  -- print("Current window: %s", vim.api.nvim_buf_get_name( vim.api.nvim_win_get_buf(curwin) ))
 
   -- If there is a floating window then restore focus to it
   if self.cur_float_win >= 0 then
@@ -52,8 +59,15 @@ function M:post_win_op()
   if self.nerdtree_win >= 0 then
     -- print("Restore NERDTree window")
     vim.api.nvim_command "NERDTree"
+    self.nerdtree_win = -1
   end
-  self.nerdtree_win = -1
+  if self.outline_win >= 0 then
+    -- print("Close Symbols Outline window")
+    vim.api.nvim_command "SymbolsOutlineOpen"
+    -- self:wincmd("p")
+    self.outline_win = -1
+  end
+  -- print("Set to current window: %s", vim.api.nvim_buf_get_name( vim.api.nvim_win_get_buf(curwin) ))
   vim.api.nvim_set_current_win(curwin)
   self.resetwins = true
 end
@@ -284,7 +298,7 @@ function M:get_wins() -- luacheck: ignore 212
   for _, w in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
     -- print(_, w)
     local is_float = vim.api.nvim_win_get_config(w).relative ~= ""
-    local is_nerdtree = false
+    local is_special = false
     -- local is_external = vim.api.nvim_win_get_config(w).external == 1
     if self.resetwins then
       -- If windows states needs to be reset, detect all out spacial cases
@@ -294,7 +308,12 @@ function M:get_wins() -- luacheck: ignore 212
         self.nerdtree_win_pos = vim.api.nvim_win_get_position(w)
         self.nerdtree_win = w
         -- print ( "Nerdtree window found!: %d", self.nerdtree_win )
-        is_nerdtree = true
+        is_special = true
+      end
+      if ft == "Outline" then
+        self.outline_win = w
+        -- print ( "Outline window found!: %d", self.outline_win )
+        is_special = true
       end
       if is_float and not isBlank(buf) then
         -- print(string.format("Found floating window with index: %d", w))
@@ -305,7 +324,7 @@ function M:get_wins() -- luacheck: ignore 212
         end
       end
     end
-    if not is_float and not is_nerdtree then
+    if not is_float and not is_special then
       table.insert(wins, w)
     end
   end
