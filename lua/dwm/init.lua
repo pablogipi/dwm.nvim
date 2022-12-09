@@ -69,10 +69,10 @@ M = {
     if opts.autocmd then
         -- FIXME: This autocommand causes problems with NerdTree
       vim.api.nvim_exec([[
-        "augroup dwm.nvim
-        "  autocmd!
-        "  autocmd BufWinEnter * lua require'dwm'.buf_win_enter()
-        "augroup end
+        augroup dwm.nvim
+         autocmd!
+         autocmd BufWinEnter * lua require'dwm'.buf_win_enter()
+        augroup end
       ]], false)
     end
 

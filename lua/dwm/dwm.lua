@@ -1,12 +1,62 @@
 local function isBlank(x)
-  return not not tostring(x):find("^%s*$")
+  return not not tostring(x):find "^%s*$"
 end
 
 local M = {
+  resetwins = true,
   floatwin = -1,
   curwin = -1,
   cur_float_win = -1,
+  nerdtree_win = -1,
+  nerdtree_win_pos = { 0, 0 },
 }
+
+function M:pre_win_op()
+  -- Operations to do BEFORE any window operation is performed.
+  -- This assumes get_wins() has been called and our spacial flags are ready
+
+  -- If there is a nerdtree window then toggle it to close
+  -- print "In PRE"
+  if self.nerdtree_win >= 0 then
+    -- print("Close NERDTree window")
+    vim.api.nvim_command "NERDTreeClose"
+  end
+  self.resetwins = false
+end
+function M:post_win_op()
+  -- print "In POST"
+  -- Operations to do AFTER any window operation is performed.
+  -- This assumes get_wins() has been called and our spacial flags are ready
+  local curwin = vim.api.nvim_get_current_win()
+
+  -- If there is a floating window then restore focus to it
+  if self.cur_float_win >= 0 then
+    -- print(string.format("Switch focus to current floating window: %d", self.cur_float_win))
+    -- Restore focus to current floating window
+    if vim.api.nvim_win_is_valid(self.cur_float_win) then
+      -- print "Set floating window as current"
+      vim.api.nvim_set_current_win(self.cur_float_win)
+      self.resetwins = true
+      return
+    end
+  end
+  -- If there is a nerdtree window then restore focus to it
+  --[[ if self.nerdtree_win >= 0 then 
+    local curwin = vim.api.nvim_get_current_win()
+    vim.api.nvim_set_current_win(self.nerdtree_win)
+    self:wincmd "H"
+    vim.api.nvim_set_current_win(curwin)
+  end ]]
+  -- If there is a nerdtree window then toggle it to close
+  -- print ( "Nerdtree window in M!: %d", self.nerdtree_win )
+  if self.nerdtree_win >= 0 then
+    -- print("Restore NERDTree window")
+    vim.api.nvim_command "NERDTree"
+  end
+  self.nerdtree_win = -1
+  vim.api.nvim_set_current_win(curwin)
+  self.resetwins = true
+end
 
 --- Open a new window
 -- The master pane move to the top of stacks, and a new window appears.
@@ -83,6 +133,8 @@ function M:buf_win_enter()
     or vim.opt.filetype:get() == ""
     or vim.opt.filetype:get() == "help"
     or vim.opt.buftype:get() == "quickfix"
+    or vim.opt.buftype:get() == "qf"
+    or vim.opt.buftype:get() == "nerdtree"
   then
     return
   end
@@ -116,8 +168,11 @@ end
 --- Rotate windows
 -- @param left Bool value to rotate left. Default: false
 function M:rotate(left)
-  self:stack()
+  -- self.resetwins = true
   local wins = self:get_wins()
+  -- self.resetwins = false
+  self:pre_win_op()
+  self:stack()
   if left then
     vim.api.nvim_set_current_win(wins[1])
     self:wincmd "J"
@@ -126,15 +181,26 @@ function M:rotate(left)
     self:wincmd "K"
   end
   self:reset()
+  -- self:post_win_op()
 end
 
 --- Reset height and width of the windows
 -- This should be run after calling stack().
 function M:reset()
+  -- print "In reset()"
+  -- self.resetwins = true
   local wins = self:get_wins()
+  -- self.resetwins = false
   if #wins == 1 then
     return
   end
+  self:pre_win_op()
+
+  -- PRE
+  -- If there is a nerdtree window then toggle it to close
+  -- if self.nerdtree_win >= 0 then
+  --   vim.api.nvim_command "NERDTreeToggle"
+  -- end
 
   local width = self:calculate_width()
   if width * self.master_pane_count > vim.o.columns then
@@ -155,13 +221,6 @@ function M:reset()
   end
 
   for i = self.master_pane_count, 1, -1 do
-    -- FIXME: This command create problems with floating windows
-    -- Probably I need to avoid this, it can cause problems not only
-    -- with floating windows but also with NerdTree and others.
-    -- Setting current window the master and force to be to the leftmost
-    -- cause flaoting windows to lose focus and things like Nerdtree to
-    -- not be deleted and then stacked
-    -- At the moment disable it
     vim.api.nvim_set_current_win(wins[i])
     self:wincmd "H"
   end
@@ -173,14 +232,23 @@ function M:reset()
     vim.api.nvim_win_set_option(wins[i], "winfixwidth", true)
   end
 
-  -- If there is a floating window then restore focus to it
-  if self.cur_float_win >= 0 then 
+  -- POST
+  --[[ -- If there is a floating window then restore focus to it
+  if self.cur_float_win >= 0 then
     -- print(string.format("Switch focus to current floating window: %d", self.cur_float_win))
     -- Restore focus to current floating window
     if vim.api.nvim_win_is_valid(self.cur_float_win) then
       vim.api.nvim_set_current_win(self.cur_float_win)
     end
   end
+  -- If there is a nerdtree window then toggle it to close
+  local curwin = vim.api.nvim_get_current_win()
+  if self.nerdtree_win >= 0 then
+    vim.api.nvim_command "NERDTreeToggle"
+  end
+  self.nerdtree_win = -1
+  vim.api.nvim_set_current_win(curwin) ]]
+  self:post_win_op()
 end
 
 function M:parse_percentage(v) -- luacheck: ignore 212
@@ -202,29 +270,43 @@ function M:default_master_pane_width()
 end
 
 function M:get_wins() -- luacheck: ignore 212
-  self.floatwin = -1 -- Init local win index
-  self.cur_float_win = -1 -- Init local win index
-  self.curwin = vim.api.nvim_get_current_win()
+  -- Init window indexes and flags if needed
+  -- print "Reset windows state"
+  -- print(self.resetwins)
+  if self.resetwins then
+    self.floatwin = -1 -- Init local win index
+    self.cur_float_win = -1 -- Init cur floating window
+    self.nerdtree_win = -1 -- Init nerdtree win
+    self.curwin = vim.api.nvim_get_current_win()
+  end
   local wins = {}
   -- print("Current window: %d", self.curwin)
   for _, w in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
-    local is_float = vim.api.nvim_win_get_config(w).relative ~= ""  or vim.api.nvim_win_get_config(w).external == 1 
-    -- local is_external = vim.api.nvim_win_get_config(w).external == 1 
-    local buf = vim.api.nvim_win_get_buf(w)
-    -- print(_,w)
-    -- print(vim.api.nvim_buf_get_name(buf))
-    -- print(vim.api.nvim_buf_get_var(buf, "filetype"))
-    if not is_float then
-      table.insert(wins, w)
-    else  
-      if not isBlank(buf) then
+    -- print(_, w)
+    local is_float = vim.api.nvim_win_get_config(w).relative ~= ""
+    local is_nerdtree = false
+    -- local is_external = vim.api.nvim_win_get_config(w).external == 1
+    if self.resetwins then
+      -- If windows states needs to be reset, detect all out spacial cases
+      local buf = vim.api.nvim_win_get_buf(w)
+      local ft = vim.api.nvim_buf_get_option(buf, "filetype")
+      if ft == "nerdtree" then
+        self.nerdtree_win_pos = vim.api.nvim_win_get_position(w)
+        self.nerdtree_win = w
+        -- print ( "Nerdtree window found!: %d", self.nerdtree_win )
+        is_nerdtree = true
+      end
+      if is_float and not isBlank(buf) then
         -- print(string.format("Found floating window with index: %d", w))
-        self.floatwin = w -- Init local win index  
-        if self.curwin == w then 
-          -- print("Floating window is current window!!!")
+        self.floatwin = w -- Init local win index
+        if self.curwin == w then
+          -- print "Floating window is current window!!!"
           self.cur_float_win = w
         end
       end
+    end
+    if not is_float and not is_nerdtree then
+      table.insert(wins, w)
     end
   end
   return wins
