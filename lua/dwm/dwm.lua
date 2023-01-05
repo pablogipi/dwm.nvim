@@ -9,6 +9,10 @@ local M = {
   cur_float_win = -1,
   nerdtree_win = -1,
   outline_win = -1,
+  trouble_win = -1,
+  trouble_win_height = 10,
+  quickfix_win = -1,
+  location_win = -1,
   nerdtree_win_pos = { 0, 0 },
 }
 
@@ -25,6 +29,20 @@ function M:pre_win_op()
   if self.outline_win >= 0 and  vim.api.nvim_win_is_valid(self.outline_win) then
     -- print("Close Symbols Outline window")
     vim.api.nvim_command "SymbolsOutlineClose"
+  end
+  if self.trouble_win >= 0 and  vim.api.nvim_win_is_valid(self.trouble_win) then
+    -- Do nothing with Trouble windows
+    -- print("Close Trouble window")
+    -- print("Detected Trouble window")
+    -- vim.api.nvim_command "TroubleClose"
+  end
+  if self.quickfix_win >= 0 and  vim.api.nvim_win_is_valid(self.quickfix_win) then
+    -- print("Close Symbols Outline window")
+    vim.api.nvim_command "cclose"
+  end
+  if self.location_win >= 0 and  vim.api.nvim_win_is_valid(self.location_win) then
+    -- print("Close Symbols Outline window")
+    vim.api.nvim_command "lclose"
   end
   self.resetwins = false
 end
@@ -62,10 +80,27 @@ function M:post_win_op()
     self.nerdtree_win = -1
   end
   if self.outline_win >= 0 then
-    -- print("Close Symbols Outline window")
+    -- print("Open Symbols Outline window")
     vim.api.nvim_command "SymbolsOutlineOpen"
     -- self:wincmd("p")
     self.outline_win = -1
+  end
+  if self.trouble_win >= 0 then
+    -- print("Move Trouble window to the bottom")
+    vim.api.nvim_set_current_win(self.trouble_win)
+    self:wincmd "J"
+    vim.api.nvim_win_set_height(self.trouble_win, self.trouble_win_height)
+    self.trouble_win = -1
+    self.trouble_win_height = 10
+  end
+  if self.quickfix_win >= 0 then
+    vim.api.nvim_command "copen"
+    self.quickfix_win = -1
+  end
+  if self.location_win >= 0 then
+    -- vim.api.nvim_command "lwindow"
+    -- vim.api.nvim_win_close(self.location_win, 0)
+    self.location_win = -1
   end
   -- print("Set to current window: %s", vim.api.nvim_buf_get_name( vim.api.nvim_win_get_buf(curwin) ))
   vim.api.nvim_set_current_win(curwin)
@@ -291,17 +326,41 @@ function M:get_wins() -- luacheck: ignore 212
     self.floatwin = -1 -- Init local win index
     self.cur_float_win = -1 -- Init cur floating window
     self.nerdtree_win = -1 -- Init nerdtree win
+    self.outline_win = -1 -- Init outline win
+    self.trouble_win = -1 -- Init trouble win
+    self.trouble_win_height = 10 -- Init trouble win height
+    self.quickfix_win = -1 -- Init quickfix win
+    self.location_win = -1 -- Init location win
     self.curwin = vim.api.nvim_get_current_win()
   end
   local wins = {}
   -- print("Current window: %d", self.curwin)
+  local winsinfo = vim.fn.getwininfo()
+  -- for _, t in ipairs(winsinfo) do
+    -- print(_, t)
+    -- local size = 0
+    -- for _ in pairs(t) do size = size + 1 end
+    -- print("Table size: ", size)
+    -- for _ in pairs(t) do print(_) end
+
+    -- print(t['winnr'])
+    -- print(t['quickfix'])
+    -- print(t['loclist'])
+    -- print(t['winbar'])
+
+    -- for k, v in ipairs(t) do
+      -- print(k, v)
+    -- end
+  -- end
+
   for _, w in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
     -- print(_, w)
+    local wininfo = winsinfo[_]
     local is_float = vim.api.nvim_win_get_config(w).relative ~= ""
     local is_special = false
     -- local is_external = vim.api.nvim_win_get_config(w).external == 1
     if self.resetwins then
-      -- If windows states needs to be reset, detect all out spacial cases
+      -- If windows states needs to be reset, detect all our spacial cases
       local buf = vim.api.nvim_win_get_buf(w)
       local ft = vim.api.nvim_buf_get_option(buf, "filetype")
       if ft == "nerdtree" then
@@ -309,10 +368,24 @@ function M:get_wins() -- luacheck: ignore 212
         self.nerdtree_win = w
         -- print ( "Nerdtree window found!: %d", self.nerdtree_win )
         is_special = true
-      end
-      if ft == "Outline" then
+      elseif ft == "Outline" then
         self.outline_win = w
         -- print ( "Outline window found!: %d", self.outline_win )
+        is_special = true
+      elseif ft == "Trouble" then
+        self.trouble_win = w
+        local height =  vim.api.nvim_win_get_height(w)
+        if height >  self.trouble_win_height then self.trouble_win_height = height end
+        -- print("Trouble window found!: ", self.trouble_win )
+        -- print("Trouble windows height: ", self.trouble_win_height)
+        is_special = true
+      elseif (ft == "quickfix" or  ft == "qf") and wininfo['loclist'] == 1 then
+        self.location_win = w
+        -- print ( "Location list window found!: ", self.location_win )
+        is_special = true
+      elseif ft == "quickfix" or  ft == "qf" then
+        self.quickfix_win = w
+        -- print ( "Quickfix window found!: ", self.quickfix_win )
         is_special = true
       end
       if is_float and not isBlank(buf) then
